@@ -82,5 +82,8 @@ Do not stop a user's running VPN, or trigger polkit prompts for unrelated units,
 
 ## Releases
 
-Bump `version` in `Cargo.toml` (and `Cargo.lock`), add a `CHANGELOG.md` entry, commit, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
-`release.yml` fails if the tag and `Cargo.toml` version differ.
+Bump `version` in `Cargo.toml` (and `Cargo.lock`), add a `CHANGELOG.md` entry (`## X.Y.Z - date`), commit and push to `main`.
+When CI on `main` succeeds and `vX.Y.Z` does not exist yet, `release.yml` creates the tag and the GitHub release
+(notes are taken from `CHANGELOG.md`) automatically — **do not** push the tag by hand. Pushing to `main` without a
+version bump releases nothing. A manually pushed tag `vX.Y.Z` still works; the workflow fails if it differs
+from the `Cargo.toml` version.

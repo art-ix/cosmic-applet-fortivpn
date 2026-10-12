@@ -15,6 +15,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   Failed, or *Show log*), not only while connected, so authentication progress and failures update live.
 - The delayed refresh after reaching Connected is skipped if the VPN has already gone down.
 - The connection time is read straight from systemd instead of from the property cache.
+- Releases are automatic: when CI on `main` passes and the `Cargo.toml` version has no tag yet, the tag and the
+  GitHub release are created, with the notes taken from this file.
 
 ### Fixed
 - Log lines no longer stay stale while the VPN is connecting (regression from 0.2.0, where state updates

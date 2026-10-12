@@ -1,8 +1,13 @@
 name: Release
 
-# Wydanie powstaje po wypchnieciu taga vX.Y.Z, np.:
-#   git tag v0.1.0 && git push origin v0.1.0
+# Wydanie powstaje automatycznie: gdy CI na `main` przejdzie, a wersja z Cargo.toml nie ma jeszcze taga,
+# tworzony jest tag vX.Y.Z oraz wydanie GitHub (opis z CHANGELOG.md). Reczne wypchniecie taga
+# (`git tag vX.Y.Z && git push origin vX.Y.Z`) tez uruchamia wydanie.
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   push:
     tags: ["v*"]
 
@@ -12,20 +17,63 @@ env:
 permissions:
   contents: write
 
+# Jedno wydanie naraz; kolejne uruchomienie zobaczy juz utworzony tag i sie pominie.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  release:
+  prepare:
+    # CI musi sie udac i dotyczyc pusha (nie PR); dla recznego taga warunku CI nie ma.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-24.04
+    outputs:
+      release: ${{ steps.v.outputs.release }}
+      tag: ${{ steps.v.outputs.tag }}
+      sha: ${{ steps.v.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Check tag matches Cargo.toml version
+      - name: Decide whether to release
+        id: v
         run: |
-          tag="${GITHUB_REF_NAME#v}"
           ver="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
-          if [ "$tag" != "$ver" ]; then
-            echo "Tag ($tag) != wersja w Cargo.toml ($ver)" >&2
-            exit 1
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            tag="$GITHUB_REF_NAME"
+            if [ "${tag#v}" != "$ver" ]; then
+              echo "Tag ($tag) != wersja w Cargo.toml ($ver)" >&2
+              exit 1
+            fi
+            release=true
+          else
+            tag="v$ver"
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+              echo "Tag $tag juz istnieje - nic do wydania."
+              release=false
+            else
+              release=true
+            fi
           fi
+          {
+            echo "release=$release"
+            echo "tag=$tag"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
 
       - name: Install system dependencies
         run: |
@@ -45,7 +93,7 @@ jobs:
 
       - name: Package
         run: |
-          name="cosmic-applet-fortivpn-${GITHUB_REF_NAME}-linux-x86_64"
+          name="cosmic-applet-fortivpn-${TAG}-linux-x86_64"
           mkdir -p "dist/$name/data"
           strip target/release/cosmic-applet-fortivpn
           cp target/release/cosmic-applet-fortivpn "dist/$name/"
@@ -54,10 +102,26 @@ jobs:
           tar -C dist -czf "$name.tar.gz" "$name"
           sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
 
+      - name: Release notes from CHANGELOG.md
+        id: notes
+        run: |
+          ver="${TAG#v}"
+          # tresc sekcji "## <wersja> ..." bez naglowka
+          awk -v v="$ver" '/^## /{p=($2==v); next} p' CHANGELOG.md > notes.md
+          if grep -q '[^[:space:]]' notes.md; then
+            echo "missing=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Brak wpisu $ver w CHANGELOG.md - opis zostanie wygenerowany z commitow." >&2
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ needs.prepare.outputs.sha }}
+          body_path: notes.md
+          generate_release_notes: ${{ steps.notes.outputs.missing == 'true' }}
           files: |
             cosmic-applet-fortivpn-*.tar.gz
             cosmic-applet-fortivpn-*.tar.gz.sha256
