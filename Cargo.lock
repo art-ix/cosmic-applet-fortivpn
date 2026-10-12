@@ -895,7 +895,7 @@ dependencies = [
 
 [[package]]
 name = "cosmic-applet-fortivpn"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "i18n-embed",
  "i18n-embed-fl",

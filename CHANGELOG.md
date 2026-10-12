@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 0.4.0 - 2026-10-12
+
+### Added
+- `.deb` package for Pop!_OS / Ubuntu 24.04 (amd64), attached to every release next to the tarball. It installs
+  the applet, the systemd unit and the polkit rule under `/usr`, depends on `openfortivpn`, `systemd` and
+  `polkitd`, and removes cleanly with `apt remove`.
+- Installing the package over an earlier `install.sh` installation removes the leftover files in
+  `/usr/local` and `/etc` that would shadow it, without disconnecting a running VPN. Updating the package
+  never stops the VPN; removing it does.
+- `scripts/build-deb.sh`, `scripts/test-deb.sh` (installs the package in a clean Ubuntu 24.04 container and
+  checks migration, libraries, remove and purge) and `just deb`.
+- CI builds and tests the `.deb` on every push and pull request.
+
+### Changed
+- README describes the `.deb` install first; the tarball is for other distributions.
+
 ## 0.3.0 - 2026-10-12
 
 ### Changed

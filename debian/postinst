@@ -1,0 +1,25 @@
+#!/bin/sh
+# Po instalacji: usun pliki z dawnego install.sh (przeslaniaja te z pakietu) i przeladuj systemd.
+# Dzialajacego VPN-a nie ruszamy.
+set -e
+
+case "$1" in
+configure)
+    # Dokladnie te sciezki, ktore stawia install.sh - trzymaj liste zgodna z install.sh.
+    for f in \
+        /usr/local/bin/cosmic-applet-fortivpn \
+        /usr/local/share/applications/com.github.artur.CosmicAppletFortiVpn.desktop \
+        /etc/systemd/system/cosmic-fortivpn.service \
+        /etc/polkit-1/rules.d/50-cosmic-fortivpn.rules; do
+        if [ -e "$f" ]; then
+            rm -f "$f"
+            echo "cosmic-applet-fortivpn: removed legacy file $f (from install.sh)"
+        fi
+    done
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+    fi
+    ;;
+esac
+
+exit 0

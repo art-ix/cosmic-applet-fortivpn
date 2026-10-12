@@ -1,0 +1,13 @@
+#!/bin/sh
+# Przy usuwaniu pakietu zatrzymaj usluge (rozlacza VPN); przy aktualizacji nie ruszaj.
+set -e
+
+case "$1" in
+remove | deconfigure)
+    if [ -d /run/systemd/system ]; then
+        systemctl stop cosmic-fortivpn.service || true
+    fi
+    ;;
+esac
+
+exit 0

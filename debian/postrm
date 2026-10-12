@@ -1,0 +1,13 @@
+#!/bin/sh
+# Po usunieciu pliku unitu przeladuj systemd. Wpis apletu w panelu (plik w $HOME) zostaje - patrz README.
+set -e
+
+case "$1" in
+remove | purge)
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+    fi
+    ;;
+esac
+
+exit 0

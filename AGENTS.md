@@ -22,7 +22,8 @@ applet (user) ──D-Bus (zbus)──> systemd ──> cosmic-fortivpn.service 
 | `src/info.rs` | journald tail (`journalctl`), `ppp*` name/IP (`ip`), traffic counters from `/sys/class/net/<if>/statistics`, byte/duration formatting |
 | `src/icons.rs`, `assets/icons/` | project-owned SVG icons (24x24, 2 px stroke, `currentColor`) embedded with `include_str!` and rendered as symbolic (theme-coloured) icons; no third-party icon sets |
 | `data/` | files installed to the system: `.desktop`, systemd unit, polkit rule |
-| `install.sh`, `justfile` | install/uninstall |
+| `install.sh`, `justfile` | install/uninstall (tarball/source install) |
+| `debian/`, `scripts/` | `.deb` maintainer scripts (`postinst`, `prerm`, `postrm`); `build-deb.sh` (cargo-deb) and `test-deb.sh` (Docker, clean Ubuntu 24.04). Package metadata is in `Cargo.toml` `[package.metadata.deb]` |
 | `.github/workflows/` | `ci.yml` (fmt, clippy, test), `release.yml` (tag → tarball + GitHub release) |
 
 ## Commands
@@ -52,6 +53,12 @@ CI runs exactly these; keep them green. System build deps:
 - Traffic stats come from sysfs counters (no root needed) and are polled every 2 s by a `time::every`
   subscription that exists **only while the popup is open and the state is `Connected`**. Keep it that way
   (no background polling). Uptime comes from the unit's `ActiveEnterTimestamp`.
+- The `.deb` installs to `/usr` (`/usr/bin`, `/usr/lib/systemd/system`, `/usr/share/polkit-1/rules.d`,
+  `/usr/share/applications`), while `install.sh` uses `/usr/local` and `/etc`. A new file in `data/` must be added to
+  both `install.sh`/`justfile` and the `assets` list in `Cargo.toml`. `debian/postinst` deletes the exact files
+  `install.sh` creates (so they do not shadow the package) — keep that list in sync with `install.sh`.
+  The package must never ship or touch `/etc/openfortivpn/config`, and `prerm` stops the unit only on
+  `remove`/`deconfigure`, never on upgrade (an update must not drop the user's VPN).
 - The unit has no `[Install]` section on purpose (no autostart). The unit runs `openfortivpn` **without**
   `-c` so the default `/etc/openfortivpn/config` is used.
 - The polkit rule must stay scoped to `action.lookup("unit") == "cosmic-fortivpn.service"`.
@@ -84,6 +91,7 @@ Do not stop a user's running VPN, or trigger polkit prompts for unrelated units,
 
 Bump `version` in `Cargo.toml` (and `Cargo.lock`), add a `CHANGELOG.md` entry (`## X.Y.Z - date`), commit and push to `main`.
 When CI on `main` succeeds and `vX.Y.Z` does not exist yet, `release.yml` creates the tag and the GitHub release
-(notes are taken from `CHANGELOG.md`) automatically — **do not** push the tag by hand. Pushing to `main` without a
-version bump releases nothing. A manually pushed tag `vX.Y.Z` still works; the workflow fails if it differs
-from the `Cargo.toml` version.
+(notes are taken from `CHANGELOG.md`; assets: `.deb`, `.tar.gz` and their `.sha256`) automatically — **do not**
+push the tag by hand. Pushing to `main` without a version bump releases nothing. A manually pushed tag `vX.Y.Z`
+still works; the workflow fails if it differs from the `Cargo.toml` version.
+CI also builds the `.deb` and installs it in a clean `ubuntu:24.04` container (`scripts/test-deb.sh`) on every push and PR.

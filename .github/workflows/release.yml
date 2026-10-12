@@ -1,7 +1,7 @@
 name: Release
 
 # Wydanie powstaje automatycznie: gdy CI na `main` przejdzie, a wersja z Cargo.toml nie ma jeszcze taga,
-# tworzony jest tag vX.Y.Z oraz wydanie GitHub (opis z CHANGELOG.md). Reczne wypchniecie taga
+# tworzony jest tag vX.Y.Z oraz wydanie GitHub (opis z CHANGELOG.md, tarball i paczka .deb). Reczne wypchniecie taga
 # (`git tag vX.Y.Z && git push origin vX.Y.Z`) tez uruchamia wydanie.
 on:
   workflow_run:
@@ -88,8 +88,12 @@ jobs:
       - name: Test
         run: cargo test --locked
 
-      - name: Build
-        run: cargo build --release --locked
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked --version 3.8.0
+
+      # buduje binarke (target/release) i paczke target/debian/*.deb (+ .sha256)
+      - name: Build binary and .deb
+        run: scripts/build-deb.sh
 
       - name: Package
         run: |
@@ -125,3 +129,5 @@ jobs:
           files: |
             cosmic-applet-fortivpn-*.tar.gz
             cosmic-applet-fortivpn-*.tar.gz.sha256
+            target/debian/cosmic-applet-fortivpn_*.deb
+            target/debian/cosmic-applet-fortivpn_*.deb.sha256

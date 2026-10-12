@@ -1,6 +1,6 @@
 [package]
 name = "cosmic-applet-fortivpn"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"
 description = "COSMIC panel applet to toggle openfortivpn"
@@ -20,6 +20,31 @@ git = "https://github.com/pop-os/libcosmic"
 rev = "5a8bd9482a35ae94c1e54edf77b331c6b970f170"
 default-features = false
 features = ["applet", "multi-window", "tokio", "wayland", "winit"]
+
+[package.metadata.deb]
+maintainer = "Artur Pelzak <60628557+art-ix@users.noreply.github.com>"
+section = "utils"
+priority = "optional"
+# Unit na sztywno uruchamia /usr/bin/openfortivpn; polkit i systemd potrzebne do przelaczania uslugi.
+depends = "$auto, openfortivpn, systemd, polkitd | policykit-1"
+# Ladowane przez dlopen - ldd ich nie widzi, wiec nie trafiaja do $auto.
+recommends = "cosmic-panel, libwayland-client0, libxkbcommon-x11-0"
+extended-description = """\
+COSMIC panel applet that turns openfortivpn on and off through a dedicated \
+systemd unit (cosmic-fortivpn.service). Shows the connection state, tunnel IP, \
+data sent and received, speed and connection time. The package installs a polkit \
+rule scoped to that single unit, so toggling does not ask for a password. \
+It does not touch /etc/openfortivpn/config - create it yourself."""
+license-file = ["LICENSE", "0"]
+maintainer-scripts = "debian/"
+assets = [
+    ["target/release/cosmic-applet-fortivpn", "usr/bin/", "755"],
+    ["data/com.github.artur.CosmicAppletFortiVpn.desktop", "usr/share/applications/", "644"],
+    ["data/cosmic-fortivpn.service", "usr/lib/systemd/system/", "644"],
+    ["data/50-cosmic-fortivpn.rules", "usr/share/polkit-1/rules.d/", "644"],
+    ["README.md", "usr/share/doc/cosmic-applet-fortivpn/", "644"],
+    ["CHANGELOG.md", "usr/share/doc/cosmic-applet-fortivpn/", "644"],
+]
 
 [profile.release]
 lto = "thin"

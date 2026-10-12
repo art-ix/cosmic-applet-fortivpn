@@ -10,6 +10,10 @@ default: build
 build:
     cargo build --release
 
+# Paczka .deb (target/debian/); wymaga `cargo install cargo-deb --locked`. Test w dockerze: scripts/test-deb.sh
+deb:
+    scripts/build-deb.sh
+
 # Instalacja binarki, .desktop, unitu systemd i reguly polkit (wymaga sudo).
 # Najpierw `just build` jako zwykly uzytkownik (cargo nie jest w PATH roota).
 install:

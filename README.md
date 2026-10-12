@@ -34,7 +34,30 @@ every other unit still requires authentication.
   (no OTP/SAML prompts — the service has no terminal)
 - NetworkManager is not required
 
-## Install from a release
+## Install (Pop!_OS / Ubuntu 24.04, `.deb`)
+
+Download `cosmic-applet-fortivpn_X.Y.Z-1_amd64.deb` from the
+[latest release](https://github.com/art-ix/cosmic-applet-fortivpn/releases/latest) and install it with apt,
+which also pulls in `openfortivpn`:
+
+```sh
+sudo apt install ./cosmic-applet-fortivpn_X.Y.Z-1_amd64.deb
+```
+
+Create your `/etc/openfortivpn/config` (the package does not ship it), then add the applet:
+**Settings → Desktop → Panel → Configure panel applets → FortiVPN**.
+
+- Installed files: `/usr/bin/cosmic-applet-fortivpn`, the `.desktop` file in `/usr/share/applications`,
+  `/usr/lib/systemd/system/cosmic-fortivpn.service` and `/usr/share/polkit-1/rules.d/50-cosmic-fortivpn.rules`.
+- If you installed an earlier version with `install.sh`, the package removes those leftover files
+  (`/usr/local/bin/...`, `/etc/systemd/system/...`, `/etc/polkit-1/rules.d/...`) so they do not shadow it.
+  A running VPN stays connected.
+- **After an update**, restart the applet to load the new binary: `pkill -f cosmic-applet-fortivpn`
+  (the panel starts it again).
+- Remove with `sudo apt remove cosmic-applet-fortivpn` (this stops the VPN). Then remove the applet from the
+  panel settings. Your `/etc/openfortivpn/config` is never touched.
+
+## Install from a tarball (other distributions)
 
 ```sh
 tar xzf cosmic-applet-fortivpn-vX.Y.Z-linux-x86_64.tar.gz
@@ -76,10 +99,12 @@ Changes take effect on the next start (toggle off and on, or `systemctl restart 
 To pass extra options to `openfortivpn`, edit `ExecStart` in
 `/etc/systemd/system/cosmic-fortivpn.service` and run `sudo systemctl daemon-reload`.
 
-If you are not in the `sudo` group, change `subject.isInGroup("sudo")` in
-`data/50-cosmic-fortivpn.rules` to your group or user before installing.
+The polkit rule applies to members of the `sudo` or `wheel` group. If you are in neither, change the
+`isInGroup(...)` checks in `data/50-cosmic-fortivpn.rules` to your group or user before installing.
 
-## Uninstall
+## Uninstall (tarball / source install)
+
+For the `.deb` package use `sudo apt remove cosmic-applet-fortivpn` (see above).
 
 ```sh
 just uninstall-all         # panel entry + system files (run WITHOUT sudo)
@@ -92,13 +117,16 @@ Stopping the service disconnects the VPN. The `openfortivpn` package and your
 ## Troubleshooting
 
 - **Toggle asks for a password / fails** — check that `/etc/polkit-1/rules.d/50-cosmic-fortivpn.rules`
-  exists and that you are in the `sudo` group.
+  exists (for the tarball install; the `.deb` puts it in `/usr/share/polkit-1/rules.d/`) and that you are in
+  the `sudo` or `wheel` group.
 - **Stays in "connecting" then fails** — open the popup → *Show log*, or run
   `journalctl -u cosmic-fortivpn -e`.
 - **"tunnel ppp0 running outside the applet"** — an `openfortivpn` started by hand is still running;
   stop it before using the toggle.
-- **Applet missing in the panel list** — make sure the `.desktop` file is in `/usr/local/share/applications`
-  and restart the panel session.
+- **Applet missing in the panel list** — make sure the `.desktop` file is in `/usr/share/applications`
+  (`.deb`) or `/usr/local/share/applications` (tarball) and restart the panel session.
+- **Still the old version after an update** — the running applet keeps the old binary; run
+  `pkill -f cosmic-applet-fortivpn`.
 
 ## Translations
 
@@ -108,12 +136,10 @@ values (keep the keys and `{ $placeholders }`), rebuild. Missing keys fall back 
 
 ## Releases
 
-Pushing a tag `vX.Y.Z` (must match `version` in `Cargo.toml`) builds the applet in GitHub Actions
-and publishes a release with a `.tar.gz` and its SHA-256:
-
-```sh
-git tag v0.1.0 && git push origin v0.1.0
-```
+Releases are automatic. Bump `version` in `Cargo.toml`, add a `CHANGELOG.md` entry and push to `main`: once CI
+passes and `vX.Y.Z` does not exist yet, GitHub Actions tags it and publishes a release with the `.deb`, the
+`.tar.gz` and their SHA-256 sums. Build the package locally with `just deb` (needs
+`cargo install cargo-deb --locked`); `scripts/test-deb.sh` installs it in a clean Ubuntu 24.04 container.
 
 ## License
 
