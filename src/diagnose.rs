@@ -32,6 +32,15 @@ pub enum Reason {
 }
 
 impl Reason {
+    /// Blad, ktorego kolejna proba nie naprawi (a przy zlym hasle kolejne logowania moga zablokowac
+    /// konto) - aplet przerywa wtedy ponawianie przez systemd.
+    pub fn is_permanent(self) -> bool {
+        matches!(
+            self,
+            Self::Auth | Self::Otp | Self::Certificate | Self::Config | Self::NotInstalled
+        )
+    }
+
     pub fn text(self) -> String {
         match self {
             Self::Auth => fl!("reason-auth"),
@@ -137,6 +146,15 @@ mod tests {
             "ERROR:  Gateway certificate validation failed, and the certificate digest is not in the local whitelist.",
         ]);
         assert_eq!(diagnose(&logs, None), Some(Reason::Certificate));
+    }
+
+    #[test]
+    fn permanent_reasons() {
+        assert!(Reason::Auth.is_permanent());
+        assert!(Reason::Certificate.is_permanent());
+        assert!(!Reason::Unreachable.is_permanent());
+        assert!(!Reason::Dns.is_permanent());
+        assert!(!Reason::StartLimit.is_permanent());
     }
 
     #[test]

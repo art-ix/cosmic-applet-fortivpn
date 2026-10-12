@@ -3,7 +3,8 @@ use crate::{
     fl, icons,
     info::{self, Info, LOG_LINES_SHOWN, format_bytes, format_duration},
     notify::{self, ACTION_RETRY, Note, NotificationsProxy},
-    systemd::{self, VpnState},
+    systemd::{self, UnitStatus, VpnState},
+    transition::{Event, Tracker},
 };
 use cosmic::{
     Element, Task, app,
@@ -51,19 +52,16 @@ struct FortiVpnApplet {
     state_known: bool,
     /// Pole `Result` uslugi (powod stanu `failed`).
     unit_result: Option<String>,
-    /// Uzytkownik rozlaczyl z apletu - zejscie z Connected nie jest wtedy "utrata polaczenia".
-    user_stop: bool,
-    /// Polaczenie zerwane bez udzialu uzytkownika; powiadomienie czeka na stan docelowy.
-    lost: bool,
-    /// Powiadomienie o bledzie czeka na log (z niego jest powod).
-    failure_pending: bool,
+    /// Ktore zmiany stanu powiadamiaja.
+    tracker: Tracker,
     notifier: Option<NotificationsProxy<'static>>,
     /// Id ostatniego powiadomienia - kolejne je zastepuje.
     notify_id: u32,
     /// Proba sie nie udala i systemd ponowi ja za chwile (`SubState=auto-restart`, stan Connecting).
     retrying: bool,
-    /// Powiadomienie o nieudanej probie juz poszlo w tej serii ponowien.
-    retry_notified: bool,
+    /// Aplet przerwal ponawianie po trwalym bledzie (zle haslo, certyfikat, config...). Unit jest
+    /// wtedy `inactive`, ale pokazywany jako Failed - do kolejnego startu.
+    aborted: bool,
     /// Faza migania kropki na ikonie panelu w stanach przejsciowych.
     blink: bool,
 }
@@ -74,20 +72,21 @@ enum Message {
     CloseRequested(window::Id),
     Toggle(bool),
     ToggleLog,
-    /// Stan i czy systemd czeka na ponowienie nieudanej proby.
-    StateChanged(VpnState, bool),
+    StateChanged(UnitStatus),
     ActionDone(Result<(), String>),
     WatchError(String),
     InfoLoaded(Info),
     LogsLoaded(Vec<String>),
     DelayedRefresh,
-    ConnectedSince(Option<SystemTime>),
     Tick,
     Traffic(Option<(u64, u64)>),
     CopyIp,
-    UnitResult(Option<String>),
+    /// Swiezy log po nieudanej probie; `bool` - czy wyslac powiadomienie o bledzie.
+    FailureLogs(Vec<String>, bool),
     Retry,
     NotifierReady(NotificationsProxy<'static>),
+    /// Polaczenie z serwerem powiadomien zerwane (nasluch akcji juz nie dziala).
+    NotifierLost,
     Notified(Result<Option<u32>, String>),
     NotificationAction(u32, String),
     Blink,
@@ -130,51 +129,42 @@ impl FortiVpnApplet {
         }
     }
 
-    fn start(&self) -> app::Task<Message> {
+    /// Start (przelacznik, *Sprobuj ponownie* w popupie i w powiadomieniu).
+    fn start(&mut self) -> app::Task<Message> {
+        self.error = None;
+        self.aborted = false;
         let reset = self.state == VpnState::Failed;
         cosmic::task::future(
             async move { Message::ActionDone(systemd::set_enabled(true, reset).await) },
         )
     }
 
-    /// Powiadomienie po zmianie stanu `prev` -> `self.state`.
-    fn transition_note(&mut self, prev: VpnState) -> Option<Note> {
-        let state = self.state;
-        if prev == VpnState::Connected && !self.user_stop {
-            self.lost = true;
-        }
-        let note = |icon, summary| Note {
+    fn stop() -> app::Task<Message> {
+        cosmic::task::future(async {
+            Message::ActionDone(systemd::set_enabled(false, false).await)
+        })
+    }
+
+    /// Log czytany dopiero po zmianie stanu, wiec zawiera juz wpisy nieudanej proby.
+    fn failure_logs(notify: bool) -> app::Task<Message> {
+        cosmic::task::future(async move { Message::FailureLogs(info::logs().await, notify) })
+    }
+
+    /// Powiadomienie dla zdarzenia innego niz `Failure` (to wymaga logu - `failure_note`).
+    fn event_note(event: Event) -> Note {
+        let (icon, summary) = match event {
+            Event::Connected => ("network-vpn-symbolic", fl!("notify-connected")),
+            Event::Reconnecting => ("network-vpn-acquiring-symbolic", fl!("notify-reconnecting")),
+            Event::Disconnected | Event::Failure => {
+                ("network-vpn-disabled-symbolic", fl!("notify-disconnected"))
+            }
+        };
+        Note {
             icon,
             summary,
             body: String::new(),
             actions: Vec::new(),
             critical: false,
-        };
-        match state {
-            VpnState::Connected => {
-                self.lost = false;
-                self.retry_notified = false;
-                Some(note("network-vpn-symbolic", fl!("notify-connected")))
-            }
-            VpnState::Connecting if std::mem::take(&mut self.lost) => Some(note(
-                "network-vpn-acquiring-symbolic",
-                fl!("notify-reconnecting"),
-            )),
-            VpnState::Inactive => {
-                self.user_stop = false;
-                self.retry_notified = false;
-                std::mem::take(&mut self.lost)
-                    .then(|| note("network-vpn-disabled-symbolic", fl!("notify-disconnected")))
-            }
-            VpnState::Failed => {
-                // tresc (powod) dopiero po wczytaniu logu - patrz InfoLoaded
-                self.lost = false;
-                self.user_stop = false;
-                self.retry_notified = false;
-                self.failure_pending = true;
-                None
-            }
-            VpnState::Connecting | VpnState::Disconnecting => None,
         }
     }
 
@@ -203,12 +193,14 @@ impl FortiVpnApplet {
             return Task::none();
         };
         let replaces = self.notify_id;
+        let app_name = fl!("title");
         cosmic::task::future(async move {
             Message::Notified(
                 notify::send(
                     &proxy,
                     replaces,
                     <FortiVpnApplet as cosmic::Application>::APP_ID,
+                    &app_name,
                     &note,
                 )
                 .await
@@ -276,14 +268,12 @@ impl cosmic::Application for FortiVpnApplet {
                 copied: false,
                 state_known: false,
                 unit_result: None,
-                user_stop: false,
-                lost: false,
-                failure_pending: false,
+                tracker: Tracker::default(),
                 notifier: None,
                 notify_id: 0,
                 blink: false,
                 retrying: false,
-                retry_notified: false,
+                aborted: false,
             },
             Self::refresh_info(),
         )
@@ -335,24 +325,26 @@ impl cosmic::Application for FortiVpnApplet {
                 if self.state == VpnState::Disconnecting {
                     return Task::none();
                 }
-                self.error = None;
                 if enable {
                     return self.start();
                 }
-                self.user_stop = true;
-                return cosmic::task::future(async {
-                    Message::ActionDone(systemd::set_enabled(false, false).await)
-                });
-            }
-            Message::Retry => {
                 self.error = None;
-                return self.start();
+                self.tracker.stop_requested();
+                return Self::stop();
             }
+            Message::Retry => return self.start(),
             Message::ToggleLog => self.show_log = !self.show_log,
-            Message::StateChanged(state, retrying) => {
+            Message::StateChanged(status) => {
                 self.watch_error = None;
+                self.connected_since = status.since;
+                self.unit_result = status.result;
+                let mut state = status.state;
+                // ponawianie przerwane przez aplet: unit jest inactive, ale to porazka
+                if self.aborted && state == VpnState::Inactive {
+                    state = VpnState::Failed;
+                }
                 let first = !std::mem::replace(&mut self.state_known, true);
-                let retrying = retrying && state == VpnState::Connecting;
+                let retrying = status.retrying && state == VpnState::Connecting;
                 // wejscie w auto-restart: nowy powod w logu, odswiez go
                 let was_retrying = std::mem::replace(&mut self.retrying, retrying);
                 let retry_started = retrying && !was_retrying;
@@ -365,36 +357,54 @@ impl cosmic::Application for FortiVpnApplet {
                 if state != VpnState::Failed {
                     self.error = None;
                 }
+                let mut tasks = vec![Self::refresh_info()];
                 // bez powiadomien o stanie zastanym przy starcie apletu
-                let note = if first {
+                let event = if first {
                     None
                 } else {
-                    self.transition_note(prev)
+                    self.tracker.transition(prev, state, retry_started)
                 };
-                // pierwsza nieudana proba w serii: powiadom od razu (tresc po wczytaniu logu),
-                // chyba ze wlasnie poszlo powiadomienie o utracie polaczenia
-                if retry_started && !first && note.is_none() && !self.retry_notified {
-                    self.retry_notified = true;
-                    self.failure_pending = true;
+                // Failure czeka na swiezy log (z niego jest powod); kazde wejscie w auto-restart tez
+                // czyta log - trwaly blad przerywa ponawianie (patrz FailureLogs)
+                match event {
+                    Some(Event::Failure) => tasks.push(Self::failure_logs(true)),
+                    Some(e) => {
+                        tasks.push(self.notify(Self::event_note(e)));
+                        if retry_started {
+                            tasks.push(Self::failure_logs(false));
+                        }
+                    }
+                    None if retry_started => tasks.push(Self::failure_logs(false)),
+                    None => {}
                 }
-                let note = note.map_or_else(Task::none, |n| self.notify(n));
                 if state == VpnState::Connected {
                     // ppp0 / log moga pojawic sie chwile po READY=1 - odswiez jeszcze raz
-                    return Task::batch([
-                        Self::refresh_info(),
-                        cosmic::task::future(async {
-                            tokio::time::sleep(Duration::from_secs(2)).await;
-                            Message::DelayedRefresh
-                        }),
-                        note,
-                    ]);
+                    tasks.push(cosmic::task::future(async {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        Message::DelayedRefresh
+                    }));
                 }
-                return Task::batch([Self::refresh_info(), note]);
+                return Task::batch(tasks);
+            }
+            Message::FailureLogs(logs, notify) => {
+                self.info.logs = logs;
+                if self.retrying && !self.aborted && self.reason().is_some_and(Reason::is_permanent)
+                {
+                    // kolejne proby nic nie dadza; powiadomienie przyjdzie z (mapowanym) stanem Failed
+                    tracing::info!("permanent failure, stopping retries");
+                    self.aborted = true;
+                    return Self::stop();
+                }
+                if notify && (self.state == VpnState::Failed || self.retrying) {
+                    return self.notify(self.failure_note());
+                }
             }
             Message::ActionDone(res) => {
                 if let Err(e) = res {
                     tracing::warn!("systemd action failed: {e}");
                     self.error = Some(e);
+                    self.tracker.stop_failed();
+                    self.aborted = false;
                 }
             }
             Message::WatchError(e) => {
@@ -405,11 +415,6 @@ impl cosmic::Application for FortiVpnApplet {
                 // pierwsza probka dla liczenia predkosci (kolejne przychodza z Tick)
                 self.last_sample = info.traffic.map(|(rx, tx)| (Instant::now(), rx, tx));
                 self.info = info;
-                if std::mem::take(&mut self.failure_pending)
-                    && (self.state == VpnState::Failed || self.retrying)
-                {
-                    return self.notify(self.failure_note());
-                }
             }
             Message::LogsLoaded(logs) => self.info.logs = logs,
             // spozniony odczyt po Connected - tylko jesli tunel nadal dziala
@@ -418,7 +423,6 @@ impl cosmic::Application for FortiVpnApplet {
                     return Self::refresh_info();
                 }
             }
-            Message::ConnectedSince(t) => self.connected_since = t,
             Message::Tick => {
                 self.copied = false;
                 let mut tasks = Vec::new();
@@ -457,14 +461,22 @@ impl cosmic::Application for FortiVpnApplet {
                     return cosmic::iced::clipboard::write(p.ip.clone());
                 }
             }
-            Message::UnitResult(r) => self.unit_result = r,
-            Message::NotifierReady(proxy) => self.notifier = Some(proxy),
+            Message::NotifierReady(proxy) => {
+                self.notifier = Some(proxy);
+                // popup otwarty zanim polaczenie bylo gotowe - zglos go teraz
+                if self.popup.is_some() {
+                    return self.popup_changed(true);
+                }
+            }
+            Message::NotifierLost => {
+                self.notifier = None;
+                self.notify_id = 0;
+            }
             Message::Notified(Ok(Some(id))) => self.notify_id = id,
             Message::Notified(Ok(None)) => {}
             Message::Notified(Err(e)) => tracing::warn!("notification failed: {e}"),
             Message::NotificationAction(id, key) => {
                 if id == self.notify_id && key == ACTION_RETRY && self.state == VpnState::Failed {
-                    self.error = None;
                     return self.start();
                 }
             }
@@ -719,7 +731,8 @@ fn notifier_subscription() -> Subscription<Message> {
                 if let Err(e) = listen_notifications(&mut output).await {
                     tracing::warn!("notifications unavailable: {e}");
                 }
-                if output.is_closed() {
+                // porzuc stare polaczenie (zwalnia nazwy na szynie), zanim powstanie nowe
+                if output.send(Message::NotifierLost).await.is_err() {
                     break;
                 }
                 tokio::time::sleep(Duration::from_secs(30)).await;
@@ -731,11 +744,14 @@ fn notifier_subscription() -> Subscription<Message> {
 async fn listen_notifications(output: &mut mpsc::Sender<Message>) -> zbus::Result<()> {
     let app_id = <FortiVpnApplet as cosmic::Application>::APP_ID;
     let proxy = notify::connect(app_id).await?;
-    let actions = proxy.receive_action_invoked().await?.map(|signal| {
-        signal
-            .args()
-            .map(|a| Message::NotificationAction(a.id, a.action_key.to_owned()))
-    });
+    // niepoprawny sygnal pomijamy - nie moze zerwac nasluchu
+    let actions = proxy
+        .receive_action_invoked()
+        .await?
+        .filter_map(|signal| async move {
+            let a = signal.args().ok()?;
+            Some(Message::NotificationAction(a.id, a.action_key.to_owned()))
+        });
     // popup otwarty na ktorymkolwiek monitorze (nowy wlasciciel nazwy)
     let popup = notify::popup_name(app_id)?;
     let shown = zbus::fdo::DBusProxy::new(proxy.inner().connection())
@@ -744,16 +760,14 @@ async fn listen_notifications(output: &mut mpsc::Sender<Message>) -> zbus::Resul
         .await?
         .filter_map(|signal| async move {
             let args = signal.args().ok()?;
-            args.new_owner()
-                .is_some()
-                .then_some(Ok(Message::PopupShown))
+            args.new_owner().is_some().then_some(Message::PopupShown)
         });
     if output.send(Message::NotifierReady(proxy)).await.is_err() {
         return Ok(());
     }
-    let mut events = select(actions, Box::pin(shown));
+    let mut events = select(Box::pin(actions), Box::pin(shown));
     while let Some(msg) = events.next().await {
-        if output.send(msg?).await.is_err() {
+        if output.send(msg).await.is_err() {
             break;
         }
     }
@@ -789,24 +803,8 @@ async fn watch(output: &mut mpsc::Sender<Message>) -> zbus::Result<()> {
     );
 
     loop {
-        let state = systemd::current_state(&unit).await?;
-        let since = systemd::connected_since(&unit).await.ok().flatten();
-        let retrying = unit
-            .sub_state()
-            .await
-            .is_ok_and(|s| s.starts_with("auto-restart"));
-        let result = if state == VpnState::Failed || retrying {
-            systemd::result(&unit).await.ok()
-        } else {
-            None
-        };
-        if output.send(Message::ConnectedSince(since)).await.is_err()
-            || output.send(Message::UnitResult(result)).await.is_err()
-            || output
-                .send(Message::StateChanged(state, retrying))
-                .await
-                .is_err()
-        {
+        let status = systemd::status(&unit).await?;
+        if output.send(Message::StateChanged(status)).await.is_err() {
             return Ok(()); // odbiorca zamkniety - koniec subskrypcji
         }
         if changes.next().await.is_none() {

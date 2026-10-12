@@ -20,6 +20,7 @@ applet (user) ──D-Bus (zbus)──> systemd ──> cosmic-fortivpn.service 
 | `src/systemd.rs` | zbus proxies (`Manager`, `Unit`), `VpnState`, start/stop, `watch()` |
 | `src/localize.rs`, `i18n/` | Fluent i18n (`fl!` macro), `en` fallback + `pl`, `de`, `es`, `it`, `fr` |
 | `src/diagnose.rs` | failure reason from the last attempt's log lines (after the last systemd `Starting ...`) and the service `Result` property; pure, unit-tested |
+| `src/transition.rs` | which state changes notify (`Tracker`: user stop, lost connection, first failed attempt); pure, unit-tested |
 | `src/notify.rs` | `org.freedesktop.Notifications` proxy (session bus; `cosmic-notifications` in COSMIC) |
 | `src/info.rs` | journald tail (`journalctl`), `ppp*` name/IP (`ip`), traffic counters from `/sys/class/net/<if>/statistics`, byte/duration formatting |
 | `src/icons.rs`, `assets/icons/` | project-owned SVG icons (24x24, 2 px stroke, `currentColor`) embedded with `include_str!` and rendered as symbolic (theme-coloured) icons; no third-party icon sets |
@@ -69,8 +70,12 @@ CI runs exactly these; keep them green. System build deps:
   polkit rule needs no change.
 - A failed attempt does not make the unit `failed` right away: with `Restart=on-failure` it sits in
   `activating`/`auto-restart` (shown as Connecting) until `StartLimitBurst` is hit. The watcher passes
-  `SubState` as the `retrying` flag of `Message::StateChanged`, so the popup shows the reason and one
-  notification is sent on the first failed attempt.
+  `SubState` in `systemd::UnitStatus` (the single `Message::StateChanged` payload), so the popup shows the
+  reason and one notification is sent on the first failed attempt. The reason is diagnosed from a journal read
+  started *after* the state change (`Message::FailureLogs`), never from an older in-flight refresh.
+- On a permanent reason (`Reason::is_permanent`: auth, OTP, certificate, config, missing binary) the applet stops
+  the unit instead of letting systemd retry (repeated logins can lock the account) and shows the resulting
+  `inactive` as Failed (`aborted`) until the next start.
 - `info::logs()` reads 40 journal lines for the diagnosis; the popup shows only the last `LOG_LINES_SHOWN`.
 - The `.deb` installs to `/usr` (`/usr/bin`, `/usr/lib/systemd/system`, `/usr/share/polkit-1/rules.d`,
   `/usr/share/applications`), while `install.sh` uses `/usr/local` and `/etc`. A new file in `data/` must be added to
@@ -94,7 +99,7 @@ CI runs exactly these; keep them green. System build deps:
 
 ## Testing changes
 
-Unit tests cover the pure logic (`VpnState::from_active_state`, `parse_ip`, `diagnose`). The UI and D-Bus parts need a
+Unit tests cover the pure logic (`VpnState::from_active_state`, `parse_ip`, `diagnose`, `transition::Tracker`). The UI and D-Bus parts need a
 real COSMIC session with the unit installed:
 
 1. `cargo build --release && sudo ./install.sh`

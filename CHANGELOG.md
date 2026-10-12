@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 0.5.1 - 2026-10-12
+
+### Changed
+- Errors that a retry cannot fix (wrong credentials, OTP required, untrusted gateway certificate, missing or
+  invalid config, `openfortivpn` missing) stop systemd's automatic retries after the first attempt, so the
+  gateway does not see repeated failed logins. The applet shows the failure and the reason; *Retry* starts again.
+- The notification title is translated (`title` key) instead of being fixed to "FortiVPN".
+
+### Fixed
+- A cancelled or failed disconnect (e.g. a dismissed polkit prompt) no longer silences the notification about a
+  later real connection drop.
+- The popup opened before the notification service was ready (right after login or after a session-bus
+  reconnect) could still be covered by a notification.
+- The failure reason in a notification could come from log lines read before the failure.
+- A malformed signal from the notification server no longer stops listening for *Retry* clicks; after a lost
+  connection the old one is dropped instead of being kept alive.
+
 ## 0.5.0 - 2026-10-12
 
 ### Added

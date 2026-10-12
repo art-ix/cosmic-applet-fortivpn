@@ -95,12 +95,40 @@ pub async fn watch() -> zbus::Result<(Connection, UnitProxy<'static>)> {
     Ok((conn, unit))
 }
 
-pub async fn current_state(unit: &UnitProxy<'_>) -> zbus::Result<VpnState> {
-    Ok(VpnState::from_active_state(&unit.active_state().await?))
+/// Migawka unitu wysylana do apletu po kazdej zmianie.
+#[derive(Debug, Clone)]
+pub struct UnitStatus {
+    pub state: VpnState,
+    /// Proba sie nie udala i systemd ponowi ja za chwile (`SubState=auto-restart*`).
+    pub retrying: bool,
+    /// Od kiedy unit jest aktywny (z `ActiveEnterTimestamp`).
+    pub since: Option<SystemTime>,
+    /// Pole `Result` uslugi; tylko w stanie `failed` albo przy ponawianiu.
+    pub result: Option<String>,
+}
+
+pub async fn status(unit: &UnitProxy<'_>) -> zbus::Result<UnitStatus> {
+    let state = VpnState::from_active_state(&unit.active_state().await?);
+    let since = connected_since(unit).await.ok().flatten();
+    let retrying = unit
+        .sub_state()
+        .await
+        .is_ok_and(|s| s.starts_with("auto-restart"));
+    let result = if state == VpnState::Failed || retrying {
+        result(unit).await.ok()
+    } else {
+        None
+    };
+    Ok(UnitStatus {
+        state,
+        retrying,
+        since,
+        result,
+    })
 }
 
 /// Pole `Result` uslugi (powod porazki dla stanu `failed`).
-pub async fn result(unit: &UnitProxy<'_>) -> zbus::Result<String> {
+async fn result(unit: &UnitProxy<'_>) -> zbus::Result<String> {
     let service = ServiceProxy::builder(unit.inner().connection())
         .path(unit.inner().path().to_owned())?
         .build()
@@ -109,7 +137,7 @@ pub async fn result(unit: &UnitProxy<'_>) -> zbus::Result<String> {
 }
 
 /// Od kiedy unit jest aktywny (do liczenia czasu polaczenia).
-pub async fn connected_since(unit: &UnitProxy<'_>) -> zbus::Result<Option<SystemTime>> {
+async fn connected_since(unit: &UnitProxy<'_>) -> zbus::Result<Option<SystemTime>> {
     let us = unit.active_enter_timestamp().await?;
     Ok((us > 0).then(|| UNIX_EPOCH + Duration::from_micros(us)))
 }

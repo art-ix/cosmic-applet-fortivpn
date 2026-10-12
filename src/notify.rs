@@ -88,6 +88,7 @@ pub async fn send(
     proxy: &NotificationsProxy<'static>,
     replaces_id: u32,
     app_id: &str,
+    app_name: &str,
     note: &Note,
 ) -> zbus::Result<Option<u32>> {
     let conn = proxy.inner().connection();
@@ -108,7 +109,7 @@ pub async fn send(
     ]);
     proxy
         .notify(
-            "FortiVPN",
+            app_name,
             replaces_id,
             note.icon,
             &note.summary,

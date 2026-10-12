@@ -13,7 +13,8 @@ next to the Network applet.
   has a *Retry* button.
 - On failure, a plain-language reason (wrong password, untrusted gateway certificate, gateway unreachable,
   missing config, OTP required, too many attempts, …) taken from the service log, and a *Retry* button that
-  also clears systemd's start limit (`reset-failed`).
+  also clears systemd's start limit (`reset-failed`). Errors that a retry cannot fix (wrong password, OTP,
+  untrusted certificate, bad config) stop the retries right away, so the gateway does not see repeated logins.
 - Uses your existing `/etc/openfortivpn/config` — the applet never reads it, so credentials stay root-only.
 
 > The UI follows your session language. English is the default and is used whenever your

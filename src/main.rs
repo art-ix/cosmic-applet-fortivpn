@@ -5,6 +5,7 @@ mod info;
 mod localize;
 mod notify;
 mod systemd;
+mod transition;
 
 fn main() -> cosmic::iced::Result {
     tracing_subscriber::fmt::init();
