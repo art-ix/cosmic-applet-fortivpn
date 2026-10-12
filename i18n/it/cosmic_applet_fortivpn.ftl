@@ -11,3 +11,4 @@ hide-log = Nascondi log
 received = Ricevuti
 sent = Inviati
 rate = { $value }/s
+rate-unknown = –

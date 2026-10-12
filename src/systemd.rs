@@ -49,7 +49,8 @@ pub trait Unit {
     #[zbus(property)]
     fn sub_state(&self) -> zbus::Result<String>;
     /// Moment wejscia w stan `active` (mikrosekundy od epoki Unix, 0 = nigdy).
-    #[zbus(property)]
+    // Bez cache: odczyt w chwili sygnalu ActiveState nie moze trafic na jeszcze nieodswiezona wartosc.
+    #[zbus(property(emits_changed_signal = "false"))]
     fn active_enter_timestamp(&self) -> zbus::Result<u64>;
 }
 

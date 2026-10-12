@@ -4,6 +4,26 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 0.3.0 - 2026-10-12
+
+### Changed
+- With several PPP links (for example a mobile modem next to the VPN), the applet now picks the interface
+  that belongs to the unit (the `pppd` PID from `/run/pppN.pid` found in the unit's cgroup) instead of
+  the first `ppp*`. It falls back to the first one when that cannot be determined, which also covers a
+  tunnel started outside the applet.
+- The log and traffic refresh now also runs while the popup is open and the log is visible (Connecting,
+  Failed, or *Show log*), not only while connected, so authentication progress and failures update live.
+- The delayed refresh after reaching Connected is skipped if the VPN has already gone down.
+- The connection time is read straight from systemd instead of from the property cache.
+
+### Fixed
+- Log lines no longer stay stale while the VPN is connecting (regression from 0.2.0, where state updates
+  that did not change the VPN state stopped refreshing the log).
+- `1.0 MiB` is shown instead of `1024.0 KiB` right below a unit boundary.
+- The "no speed yet" placeholder is now a localized string instead of a hardcoded one.
+- `just uninstall-panel` matches the applet ID literally (dots are escaped in the pattern).
+- Declared the `fs` feature of `tokio` that the code already relied on.
+
 ## 0.2.0 - 2026-10-12
 
 ### Added

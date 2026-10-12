@@ -54,6 +54,8 @@ enum Message {
     ActionDone(Result<(), String>),
     WatchError(String),
     InfoLoaded(Info),
+    LogsLoaded(Vec<String>),
+    DelayedRefresh,
     ConnectedSince(Option<SystemTime>),
     Tick,
     Traffic(Option<(u64, u64)>),
@@ -70,6 +72,11 @@ impl FortiVpnApplet {
         self.last_sample = None;
         self.speed = None;
         self.copied = false;
+    }
+
+    /// Linie logu sa widoczne (wlaczone przez uzytkownika albo wymuszone przez stan Failed).
+    fn log_visible(&self) -> bool {
+        self.show_log || self.state == VpnState::Failed
     }
 
     fn icon(&self) -> &'static str {
@@ -186,7 +193,7 @@ impl cosmic::Application for FortiVpnApplet {
                         Self::refresh_info(),
                         cosmic::task::future(async {
                             tokio::time::sleep(Duration::from_secs(2)).await;
-                            Message::InfoLoaded(info::fetch().await)
+                            Message::DelayedRefresh
                         }),
                     ]);
                 }
@@ -207,15 +214,31 @@ impl cosmic::Application for FortiVpnApplet {
                 self.last_sample = info.traffic.map(|(rx, tx)| (Instant::now(), rx, tx));
                 self.info = info;
             }
+            Message::LogsLoaded(logs) => self.info.logs = logs,
+            // spozniony odczyt po Connected - tylko jesli tunel nadal dziala
+            Message::DelayedRefresh => {
+                if self.state == VpnState::Connected {
+                    return Self::refresh_info();
+                }
+            }
             Message::ConnectedSince(t) => self.connected_since = t,
             Message::Tick => {
                 self.copied = false;
-                if let Some(p) = &self.info.ppp {
+                let mut tasks = Vec::new();
+                if self.state == VpnState::Connected
+                    && let Some(p) = &self.info.ppp
+                {
                     let ifname = p.ifname.clone();
-                    return cosmic::task::future(async move {
+                    tasks.push(cosmic::task::future(async move {
                         Message::Traffic(info::traffic(&ifname).await)
-                    });
+                    }));
                 }
+                if self.log_visible() {
+                    tasks.push(cosmic::task::future(async {
+                        Message::LogsLoaded(info::logs().await)
+                    }));
+                }
+                return Task::batch(tasks);
             }
             Message::Traffic(Some((rx, tx))) => {
                 let now = Instant::now();
@@ -328,7 +351,7 @@ impl cosmic::Application for FortiVpnApplet {
             if let Some((rx, tx)) = self.info.traffic {
                 let rate = |r: Option<u64>| match r {
                     Some(r) => fl!("rate", value = format_bytes(r)),
-                    None => "–".to_owned(),
+                    None => fl!("rate-unknown"),
                 };
                 let tile = |glyph: &'static str, label: String, total: u64, r: Option<u64>| {
                     let head = Row::new()
@@ -373,8 +396,7 @@ impl cosmic::Application for FortiVpnApplet {
             ));
         }
 
-        let show_log = self.show_log || self.state == VpnState::Failed;
-        if show_log {
+        if self.log_visible() {
             content = content
                 .push(padded_control(divider::horizontal::default()).padding([space_xxs, space_s]));
             for line in &self.info.logs {
@@ -399,12 +421,13 @@ impl cosmic::Application for FortiVpnApplet {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        // Odswiezanie licznikow tylko gdy popup jest otwarty i tunel dziala.
-        let tick = if self.popup.is_some() && self.state == VpnState::Connected {
-            cosmic::iced::time::every(Duration::from_secs(2)).map(|_| Message::Tick)
-        } else {
-            Subscription::none()
-        };
+        // Odswiezanie (liczniki, log) tylko przy otwartym popupie i tylko gdy jest co odswiezac.
+        let tick =
+            if self.popup.is_some() && (self.state == VpnState::Connected || self.log_visible()) {
+                cosmic::iced::time::every(Duration::from_secs(2)).map(|_| Message::Tick)
+            } else {
+                Subscription::none()
+            };
         Subscription::batch([state_subscription(), tick])
     }
 

@@ -11,3 +11,4 @@ hide-log = Ukryj log
 received = Pobrano
 sent = Wysłano
 rate = { $value }/s
+rate-unknown = –

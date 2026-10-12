@@ -11,3 +11,4 @@ hide-log = Masquer le journal
 received = Reçu
 sent = Envoyé
 rate = { $value }/s
+rate-unknown = –

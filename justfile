@@ -35,9 +35,11 @@ uninstall-panel:
     [ -f "$f" ] || exit 0
     grep -q '{{appid}}' "$f" || { echo "brak wpisu w $f"; exit 0; }
     # Usuwamy tylko linie zawierajaca wylacznie ID apletu (opcjonalnie w cudzyslowie, z przecinkiem).
-    if grep -Eq '^[[:space:]]*"?{{appid}}"?,?[[:space:]]*$' "$f"; then
+    id='{{appid}}'
+    re="^[[:space:]]*\"?${id//./\\.}\"?,?[[:space:]]*$"
+    if grep -Eq "$re" "$f"; then
         cp "$f" "$f.bak"
-        sed -i -E '/^[[:space:]]*"?{{appid}}"?,?[[:space:]]*$/d' "$f"
+        sed -i -E "/$re/d" "$f"
         echo "usunieto wpis z $f (kopia: $f.bak)"
     else
         echo "wpis w $f nie jest w osobnej linii - usun {{appid}} recznie (Ustawienia -> Panel)" >&2

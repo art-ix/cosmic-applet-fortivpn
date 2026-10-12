@@ -11,3 +11,4 @@ hide-log = Protokoll ausblenden
 received = Empfangen
 sent = Gesendet
 rate = { $value }/s
+rate-unknown = –
