@@ -8,6 +8,12 @@ next to the Network applet.
 - Shows the tunnel IP (`ppp0`) and the last lines of the service log. Click the status line to copy the IP.
 - While connected and the popup is open: data sent/received since the tunnel came up, live speed, and connection time.
 - Reacts to changes made elsewhere (e.g. `systemctl stop` in a terminal) without polling.
+- Panel icon with a coloured status dot (green connected, blinking orange while connecting, red on failure).
+- Desktop notifications when the VPN connects, drops (and reconnects), or fails. A failure notification
+  has a *Retry* button.
+- On failure, a plain-language reason (wrong password, untrusted gateway certificate, gateway unreachable,
+  missing config, OTP required, too many attempts, …) taken from the service log, and a *Retry* button that
+  also clears systemd's start limit (`reset-failed`).
 - Uses your existing `/etc/openfortivpn/config` — the applet never reads it, so credentials stay root-only.
 
 > The UI follows your session language. English is the default and is used whenever your

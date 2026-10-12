@@ -1,7 +1,9 @@
 mod app;
+mod diagnose;
 mod icons;
 mod info;
 mod localize;
+mod notify;
 mod systemd;
 
 fn main() -> cosmic::iced::Result {

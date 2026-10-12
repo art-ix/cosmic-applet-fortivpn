@@ -45,9 +45,12 @@ pub async fn traffic(ifname: &str) -> Option<(u64, u64)> {
     Some((rx?, tx?))
 }
 
+/// Ile linii logu pokazuje popup (pobieranych jest wiecej, na potrzeby diagnozy bledu).
+pub const LOG_LINES_SHOWN: usize = 6;
+
 pub async fn logs() -> Vec<String> {
     let out = Command::new("journalctl")
-        .args(["-u", UNIT, "-n", "6", "-o", "cat", "--no-pager"])
+        .args(["-u", UNIT, "-n", "40", "-o", "cat", "--no-pager"])
         .output()
         .await;
     match out {

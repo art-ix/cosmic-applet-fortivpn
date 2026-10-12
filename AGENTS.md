@@ -19,6 +19,8 @@ applet (user) ──D-Bus (zbus)──> systemd ──> cosmic-fortivpn.service 
 | `src/app.rs` | `cosmic::Application`: panel icon, popup UI, `Message` handling, D-Bus subscription |
 | `src/systemd.rs` | zbus proxies (`Manager`, `Unit`), `VpnState`, start/stop, `watch()` |
 | `src/localize.rs`, `i18n/` | Fluent i18n (`fl!` macro), `en` fallback + `pl`, `de`, `es`, `it`, `fr` |
+| `src/diagnose.rs` | failure reason from the last attempt's log lines (after the last systemd `Starting ...`) and the service `Result` property; pure, unit-tested |
+| `src/notify.rs` | `org.freedesktop.Notifications` proxy (session bus; `cosmic-notifications` in COSMIC) |
 | `src/info.rs` | journald tail (`journalctl`), `ppp*` name/IP (`ip`), traffic counters from `/sys/class/net/<if>/statistics`, byte/duration formatting |
 | `src/icons.rs`, `assets/icons/` | project-owned SVG icons (24x24, 2 px stroke, `currentColor`) embedded with `include_str!` and rendered as symbolic (theme-coloured) icons; no third-party icon sets |
 | `data/` | files installed to the system: `.desktop`, systemd unit, polkit rule |
@@ -52,7 +54,24 @@ CI runs exactly these; keep them green. System build deps:
 - `Message` update arms return `app::Task<Message>`; use `cosmic::task::future(...)` for async work.
 - Traffic stats come from sysfs counters (no root needed) and are polled every 2 s by a `time::every`
   subscription that exists **only while the popup is open and the state is `Connected`**. Keep it that way
-  (no background polling). Uptime comes from the unit's `ActiveEnterTimestamp`.
+  (no background polling). Uptime comes from the unit's `ActiveEnterTimestamp`. The only other timer is the
+  600 ms blink of the panel status dot, which exists only while the state is `Connecting`/`Disconnecting`.
+- Notifications are sent only on transitions after the first known state (never for the state found at
+  startup), replace each other (`replaces_id`), and are sent from the same session-bus connection that
+  listens for `ActionInvoked` (the *Retry* action). A user-initiated disconnect does not notify.
+  cosmic-panel runs **one applet process per monitor**, so every instance sees each state change: only the
+  owner of the queued session-bus name `<APP_ID>.Notifier` sends notifications (checked right before
+  sending; the next instance in the queue takes over when the owner exits). Every instance with an open
+  popup holds `<APP_ID>.PopupOpen`: while it has an owner nothing is sent (the popup shows the same and the
+  notification would cover it), and its appearance closes the visible notification.
+- *Retry* (and toggling on from `Failed`) calls `ResetFailedUnit` before `StartUnit`, otherwise systemd rejects
+  the start after `StartLimitBurst` failures. It is the same polkit action (`manage-units`, same unit), so the
+  polkit rule needs no change.
+- A failed attempt does not make the unit `failed` right away: with `Restart=on-failure` it sits in
+  `activating`/`auto-restart` (shown as Connecting) until `StartLimitBurst` is hit. The watcher passes
+  `SubState` as the `retrying` flag of `Message::StateChanged`, so the popup shows the reason and one
+  notification is sent on the first failed attempt.
+- `info::logs()` reads 40 journal lines for the diagnosis; the popup shows only the last `LOG_LINES_SHOWN`.
 - The `.deb` installs to `/usr` (`/usr/bin`, `/usr/lib/systemd/system`, `/usr/share/polkit-1/rules.d`,
   `/usr/share/applications`), while `install.sh` uses `/usr/local` and `/etc`. A new file in `data/` must be added to
   both `install.sh`/`justfile` and the `assets` list in `Cargo.toml`. `debian/postinst` deletes the exact files
@@ -75,7 +94,7 @@ CI runs exactly these; keep them green. System build deps:
 
 ## Testing changes
 
-Unit tests cover the pure logic (`VpnState::from_active_state`, `parse_ip`). The UI and D-Bus parts need a
+Unit tests cover the pure logic (`VpnState::from_active_state`, `parse_ip`, `diagnose`). The UI and D-Bus parts need a
 real COSMIC session with the unit installed:
 
 1. `cargo build --release && sudo ./install.sh`

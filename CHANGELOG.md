@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 0.5.0 - 2026-10-12
+
+### Added
+- Desktop notifications (`org.freedesktop.Notifications`, shown by `cosmic-notifications`) when the VPN
+  connects, the connection drops (reconnecting / disconnected) or fails. Notifications replace each other
+  instead of piling up; a disconnect from the applet does not notify. With several monitors (one applet
+  process per panel) only one instance notifies. No notifications while the popup is open, and opening it
+  closes the current one, so they never cover the popup. The failure notification has a
+  *Retry* button.
+- Plain-language failure reason in the popup and in the notification: wrong credentials, OTP required,
+  untrusted gateway certificate, DNS failure, gateway unreachable, TLS error, missing or invalid config,
+  PPP tunnel not up, `openfortivpn` missing, too many attempts, timeout, crash. It is read from the log of the
+  last attempt and the unit's `Result`. It is shown, and notified once, as soon as the first attempt fails
+  while systemd is still retrying (`Restart=on-failure`), not only after the retries run out.
+- *Retry* button in the failed state. Retrying (also by switching the toggle on) clears the unit's failed
+  state and systemd's start limit first, so it works right after three failed attempts.
+- Coloured status dot on the panel icon: green when connected, blinking orange while connecting or
+  disconnecting, red on failure.
+
 ## 0.4.0 - 2026-10-12
 
 ### Added
