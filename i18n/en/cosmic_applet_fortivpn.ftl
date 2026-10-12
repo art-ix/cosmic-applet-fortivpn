@@ -1,0 +1,13 @@
+connected = Connected
+connecting = Connecting…
+disconnecting = Disconnecting…
+failed = Connection failed
+disabled = Disabled
+disabled-external = Disabled (tunnel ppp0 { $ip } is running outside the applet)
+error = Error: { $error }
+title = FortiVPN
+show-log = Show log
+hide-log = Hide log
+received = Received
+sent = Sent
+rate = { $value }/s

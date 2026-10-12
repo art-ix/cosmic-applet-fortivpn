@@ -1,0 +1,13 @@
+connected = Połączono
+connecting = Łączenie…
+disconnecting = Rozłączanie…
+failed = Błąd połączenia
+disabled = Wyłączony
+disabled-external = Wyłączony (tunel ppp0 { $ip } działa poza apletem)
+error = Błąd: { $error }
+title = FortiVPN
+show-log = Pokaż log
+hide-log = Ukryj log
+received = Pobrano
+sent = Wysłano
+rate = { $value }/s

@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenFortiVPN (COSMIC applet)
+After=network-online.target
+Wants=network-online.target
+Documentation=man:openfortivpn(1)
+# Zle dane logowania / niedostepna brama: nie zalewaj bramy ponowieniami.
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+# notify: openfortivpn (zbudowany z libsystemd) wysyla READY=1 po wstaniu tunelu.
+# Gdyby Twoj pakiet byl bez wsparcia systemd, zmien na Type=exec.
+Type=notify
+PrivateTmp=true
+# Bez -c: openfortivpn czyta domyslnie /etc/openfortivpn/config
+ExecStart=/usr/bin/openfortivpn
+Restart=on-failure
+RestartSec=10
+OOMScoreAdjust=-100
+
+# Brak [Install]: usluga jest wlaczana tylko z apletu w panelu.

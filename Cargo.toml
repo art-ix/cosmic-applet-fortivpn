@@ -1,0 +1,25 @@
+[package]
+name = "cosmic-applet-fortivpn"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+description = "COSMIC panel applet to toggle openfortivpn"
+
+[dependencies]
+i18n-embed = { version = "0.16", features = ["fluent-system", "desktop-requester"] }
+i18n-embed-fl = "0.10"
+rust-embed = "8.11"
+tokio = { version = "1", features = ["process", "rt", "macros", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+zbus = { version = "5.14", default-features = false, features = ["tokio"] }
+
+# Rev z Cargo.lock cosmic-applets epoch-1.10.0 (COSMIC 1.10)
+[dependencies.libcosmic]
+git = "https://github.com/pop-os/libcosmic"
+rev = "5a8bd9482a35ae94c1e54edf77b331c6b970f170"
+default-features = false
+features = ["applet", "multi-window", "tokio", "wayland", "winit"]
+
+[profile.release]
+lto = "thin"

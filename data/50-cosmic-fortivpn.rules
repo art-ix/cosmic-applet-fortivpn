@@ -1,0 +1,10 @@
+// Pozwala lokalnemu, aktywnemu uzytkownikowi z grupy "sudo" (Debian/Ubuntu/Pop!_OS) lub "wheel" (Fedora/Arch) startowac/zatrzymywac
+// wylacznie jednostke cosmic-fortivpn.service bez hasla.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "cosmic-fortivpn.service" &&
+        subject.local && subject.active &&
+        (subject.isInGroup("sudo") || subject.isInGroup("wheel"))) {
+        return polkit.Result.YES;
+    }
+});

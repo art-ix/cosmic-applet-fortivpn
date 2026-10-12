@@ -1,0 +1,20 @@
+[Desktop Entry]
+Name=FortiVPN
+Name[pl]=FortiVPN
+Comment=Toggle openfortivpn from the panel
+Comment[pl]=Włączanie i wyłączanie openfortivpn z panelu
+Comment[de]=openfortivpn über das Panel ein- und ausschalten
+Comment[es]=Activa y desactiva openfortivpn desde el panel
+Comment[fr]=Activer et désactiver openfortivpn depuis le panneau
+Comment[it]=Attiva e disattiva openfortivpn dal pannello
+Type=Application
+Exec=cosmic-applet-fortivpn
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;VPN;Fortinet;
+Icon=network-vpn-symbolic
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicHoverPopup=Auto
+X-OverflowPriority=10

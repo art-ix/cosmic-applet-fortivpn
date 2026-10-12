@@ -1,0 +1,13 @@
+connected = Connesso
+connecting = Connessione in corso…
+disconnecting = Disconnessione in corso…
+failed = Connessione non riuscita
+disabled = Disattivato
+disabled-external = Disattivato (il tunnel ppp0 { $ip } è attivo al di fuori dell'applet)
+error = Errore: { $error }
+title = FortiVPN
+show-log = Mostra log
+hide-log = Nascondi log
+received = Ricevuti
+sent = Inviati
+rate = { $value }/s

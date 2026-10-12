@@ -1,0 +1,63 @@
+name: Release
+
+# Wydanie powstaje po wypchnieciu taga vX.Y.Z, np.:
+#   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          if [ "$tag" != "$ver" ]; then
+            echo "Tag ($tag) != wersja w Cargo.toml ($ver)" >&2
+            exit 1
+          fi
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libxkbcommon-dev libwayland-dev libinput-dev libudev-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Package
+        run: |
+          name="cosmic-applet-fortivpn-${GITHUB_REF_NAME}-linux-x86_64"
+          mkdir -p "dist/$name/data"
+          strip target/release/cosmic-applet-fortivpn
+          cp target/release/cosmic-applet-fortivpn "dist/$name/"
+          cp data/* "dist/$name/data/"
+          cp install.sh README.md CHANGELOG.md LICENSE "dist/$name/"
+          tar -C dist -czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            cosmic-applet-fortivpn-*.tar.gz
+            cosmic-applet-fortivpn-*.tar.gz.sha256
